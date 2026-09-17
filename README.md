@@ -64,6 +64,26 @@ Each request opens an approval window in KeePass showing the program, the proces
 
 Tools such as Docker Compose, Node's `dotenv` and `python-dotenv` give variables already in the environment precedence over the `.env` file, so they see the real values even though the file only contains references.
 
+### Contexts: picking values instead of writing references
+
+A context maps environment variable names to entry fields, so a command can ask for values by name without a `.env` file:
+
+```powershell
+kp run --context tablet --slot WIFI_PASSWORD -- pwsh -c 'adb shell input text $env:WIFI_PASSWORD'
+```
+
+`--slot NAME` declares a variable the command needs. If the context does not exist yet, or lacks one of the slots, KeePass opens a small picker next to its main window: select the variable, select an entry in KeePass's own list, choose the field and click **Assign**, then **Share** (with Windows Hello or a security key when the database has one set up). The assignment is saved; later runs skip the picker and only ask for approval, and a run without `--slot` sets every variable the context has. `--repick` opens the picker anyway to change assignments.
+
+`kp` only sets environment variables; it never inserts values into the command text. Reference them with your shell's syntax inside a quoted command that the shell started by `kp` expands (`pwsh -c '… $env:NAME'`, `sh -c '… "$NAME"'`), so values are passed as data and never parsed as code. `cmd /c … %NAME%` is not safe: cmd.exe re-parses expanded values.
+
+Contexts are stored on this computer next to the unlock data (`contexts.xml`) and hold only entry references (by UUID) and labels. Manage them with `kp context list`, `kp context show NAME` and `kp context remove NAME`.
+
+`tools/adb-type.ps1` types its arguments into the focused field of an Android device, quoted for the device's shell, with Tab between values:
+
+```powershell
+kp run --context tablet --slot WIFI_SSID --slot WIFI_PASSWORD -- pwsh -c 'tools\adb-type.ps1 $env:WIFI_SSID $env:WIFI_PASSWORD -Enter'
+```
+
 ### Moving existing values into KeePass
 
 ```powershell

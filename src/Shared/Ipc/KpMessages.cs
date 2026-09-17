@@ -70,6 +70,16 @@ namespace KeePassFido2.Ipc
         public const string Ping = "ping";
         public const string Resolve = "resolve";
         public const string Import = "import";
+
+        /// <summary>
+        /// Values of a named context: environment variable names mapped to entry fields. When the
+        /// context does not exist, lacks a requested slot, or Repick is set, the user assigns
+        /// entries in KeePass first.
+        /// </summary>
+        public const string Context = "context";
+
+        public const string ContextList = "context-list";
+        public const string ContextRemove = "context-remove";
     }
 
     [DataContract]
@@ -92,6 +102,18 @@ namespace KeePassFido2.Ipc
 
         [DataMember] public List<string> References { get; set; } = new List<string>();
         [DataMember] public KpImport Import { get; set; }
+
+        /// <summary>Context name for Context and ContextRemove requests.</summary>
+        [DataMember] public string Context { get; set; }
+
+        /// <summary>Open the picker even when the context exists, replacing its selection.</summary>
+        [DataMember] public bool Repick { get; set; }
+
+        /// <summary>
+        /// Environment variable names the context must provide. Missing ones open the picker so
+        /// the user can assign entry fields to them.
+        /// </summary>
+        [DataMember] public List<string> Slots { get; set; } = new List<string>();
     }
 
     internal static class KpConflict
@@ -138,9 +160,13 @@ namespace KeePassFido2.Ipc
 
         /// <summary>
         /// Resolve: reference → value. Import: variable name → reference, for every imported or
-        /// skipped name.
+        /// skipped name. Context: variable name → value. ContextList: context name
+        /// → summary.
         /// </summary>
         [DataMember] public List<KpPair> Values { get; set; } = new List<KpPair>();
+
+        /// <summary>Context: variable name → "Group / Entry / Field", which is not secret, for display.</summary>
+        [DataMember] public List<KpPair> Labels { get; set; } = new List<KpPair>();
 
         public static KpResponse Failure(string error) => new KpResponse { Ok = false, Error = error };
 

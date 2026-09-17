@@ -42,7 +42,8 @@ namespace KeePassFido2
             _host.MainWindow.FileOpened += OnFileOpened;
             _host.MainWindow.FileClosed += OnFileClosed;
 
-            _broker = new SecretBroker(_host, _service);
+            string storeDirectory = System.IO.Path.GetDirectoryName(UnlockStore.DefaultFilePath);
+            _broker = new SecretBroker(_host, _service, new ContextStore(System.IO.Path.Combine(storeDirectory, "contexts.xml")));
             _server = new SecretServer(_broker.Handle);
             _server.Start();
             return true;

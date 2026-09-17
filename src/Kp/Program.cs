@@ -15,11 +15,19 @@ namespace KeePassFido2.Kp
         private const string Usage =
 @"kp - use KeePass entries in .env files
 
-  kp run [-f FILE]... -- COMMAND [ARGS...]
+  kp run [-f FILE]... [--context NAME] -- COMMAND [ARGS...]
       Run COMMAND with the variables from the .env files (default: .env), kp:// references
       filled in from KeePass after you approve in KeePass.
+        --context NAME     also set the variables of a named context: environment variables
+                           you assigned entry fields to in KeePass. Reference them in COMMAND
+                           with your shell's syntax, quoted so that shell expands them, e.g.
+                             kp run --context tablet --slot WIFI_PASSWORD --
+                               pwsh -c 'adb shell input text $env:WIFI_PASSWORD'
+        --slot NAME        a variable COMMAND needs; if the context lacks it, KeePass opens the
+                           picker to assign it. Repeatable.
+        --repick           open the picker even when the context has every slot
 
-  kp env [-f FILE]... [--format dotenv|export|powershell|null]
+  kp env [-f FILE]... [--context NAME] [--format dotenv|export|powershell|null]
       Print the variables with references filled in, e.g. for WSL (see kp-run) or
       `kp env --format powershell | Invoke-Expression`.
 
@@ -34,6 +42,9 @@ namespace KeePassFido2.Kp
         --on-conflict MODE  fail (default), skip or overwrite existing entries
         --no-rewrite        leave the .env file unchanged
         --dry-run           show what would happen
+
+  kp context list | show NAME | remove NAME
+      Manage the contexts saved on this computer (names and entry references, no values).
 
 Options for every command:
   --database PATH   use this database; KeePass asks to unlock it when needed (or set KP_DATABASE)
@@ -64,6 +75,7 @@ Values that are not references are passed through unchanged.";
                     case "env": return Env(options);
                     case "get": return Get(options);
                     case "import": return Import(options);
+                    case "context": return ContextCommand(options);
                     default: throw new KpException($"Unknown command '{args[0]}'. Run 'kp help'.");
                 }
             }
@@ -83,7 +95,7 @@ Values that are not references are passed through unchanged.";
         {
             if (options.Rest.Count == 0) throw new KpException("Nothing to run. Usage: kp run [-f FILE]... -- COMMAND [ARGS...]");
             string command = CommandLauncher.JoinArguments(options.Rest);
-            IDictionary<string, string> variables = LoadVariables(options.Files, command, Target(options));
+            IDictionary<string, string> variables = LoadVariables(options, command);
             return CommandLauncher.Run(options.Rest, variables);
         }
 
@@ -92,7 +104,7 @@ Values that are not references are passed through unchanged.";
             string format = options.Single("--format") ?? "dotenv";
             if (!EnvFormatter.Formats.Contains(format)) throw new KpException($"Unknown format '{format}'.");
             string command = options.Single("--command") ?? "kp env";
-            IDictionary<string, string> variables = LoadVariables(options.Files, command, Target(options));
+            IDictionary<string, string> variables = LoadVariables(options, command);
             WriteStdout(EnvFormatter.Format(variables, format));
             return 0;
         }
@@ -175,14 +187,69 @@ Values that are not references are passed through unchanged.";
             return 0;
         }
 
-        /// <summary>Merges the files in order (later assignments win) and resolves references.</summary>
-        private static IDictionary<string, string> LoadVariables(IList<string> files, string command, KeePassTarget target)
+        /// <summary>
+        /// Merges the .env files in order (later assignments win), resolves their references, then
+        /// adds the context's values, which override same-named file variables.
+        /// </summary>
+        private static IDictionary<string, string> LoadVariables(Options options, string command)
         {
-            if (files.Count == 0)
-            {
-                if (!File.Exists(".env")) throw new KpException("No .env file in this folder. Pass -f FILE.");
+            KeePassTarget target = Target(options);
+            string context = options.Single("--context");
+            if (context == null && (options.Many("--slot").Count > 0 || options.Flag("--repick")))
+                throw new KpException("--slot and --repick need --context NAME.");
+            IList<string> files = options.Files;
+            if (files.Count == 0 && File.Exists(".env"))
                 files = new[] { ".env" };
+            else if (files.Count == 0 && context == null)
+                throw new KpException("No .env file in this folder. Pass -f FILE or --context NAME.");
+
+            IDictionary<string, string> variables = LoadFiles(files, command, target);
+            if (context == null) return variables;
+
+            KpResponse response = KpClient.Context(context, options.Flag("--repick"), options.Many("--slot"), command, target);
+            foreach (KpPair pair in response.Values) variables[pair.Key] = pair.Value;
+            return variables;
+        }
+
+        private static int ContextCommand(Options options)
+        {
+            string action = options.Rest.FirstOrDefault();
+            KeePassTarget target = Target(options);
+            switch (action)
+            {
+                case "list":
+                {
+                    KpResponse response = KpClient.ListContexts(target);
+                    if (response.Values.Count == 0) Console.WriteLine("No contexts saved. Create one with kp run --context NAME -- COMMAND.");
+                    foreach (KpPair context in response.Values) Console.WriteLine($"{context.Key}: {context.Value}");
+                    return 0;
+                }
+                case "show":
+                {
+                    string name = options.Rest.ElementAtOrDefault(1) ?? throw new KpException("Usage: kp context show NAME");
+                    KpResponse response = KpClient.ListContexts(target);
+                    if (!response.Values.Any(c => string.Equals(c.Key, name, StringComparison.OrdinalIgnoreCase)))
+                        throw new KpException($"There is no context '{name}'.");
+                    string prefix = response.Values.First(c => string.Equals(c.Key, name, StringComparison.OrdinalIgnoreCase)).Key + "/";
+                    int index = 1;
+                    foreach (KpPair variable in response.Labels.Where(l => l.Key.StartsWith(prefix, StringComparison.Ordinal)))
+                        Console.WriteLine($"{index++,2}. {variable.Key.Substring(prefix.Length)} = {variable.Value}");
+                    return 0;
+                }
+                case "remove":
+                {
+                    string name = options.Rest.ElementAtOrDefault(1) ?? throw new KpException("Usage: kp context remove NAME");
+                    KpClient.RemoveContext(name, target);
+                    Console.WriteLine($"Removed context '{name}'.");
+                    return 0;
+                }
+                default:
+                    throw new KpException("Usage: kp context list | show NAME | remove NAME");
             }
+        }
+
+        private static IDictionary<string, string> LoadFiles(IList<string> files, string command, KeePassTarget target)
+        {
 
             var variables = new Dictionary<string, string>(StringComparer.Ordinal);
             var order = new List<string>();
@@ -263,8 +330,8 @@ Values that are not references are passed through unchanged.";
         /// <summary>Options before "--" (or before the first non-option word for run), then the rest.</summary>
         private sealed class Options
         {
-            private static readonly HashSet<string> Flags = new HashSet<string> { "--all", "--dry-run", "--no-rewrite" };
-            private static readonly HashSet<string> Valued = new HashSet<string> { "-f", "--file", "--format", "--command", "--group", "--match", "--on-conflict", "--database", "--keepass" };
+            private static readonly HashSet<string> Flags = new HashSet<string> { "--all", "--dry-run", "--no-rewrite", "--repick" };
+            private static readonly HashSet<string> Valued = new HashSet<string> { "-f", "--file", "--format", "--command", "--group", "--match", "--on-conflict", "--database", "--keepass", "--context", "--slot" };
             private readonly List<KeyValuePair<string, string>> _values = new List<KeyValuePair<string, string>>();
 
             public Options(IList<string> args)

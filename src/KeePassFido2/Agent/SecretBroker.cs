@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 using KeePass.Forms;
 using KeePass.Plugins;
+using KeePass.UI;
 using KeePassFido2.Ipc;
 using KeePassFido2.References;
 using KeePassFido2.Storage;
@@ -31,12 +33,14 @@ namespace KeePassFido2.Agent
 
         private readonly IPluginHost _host;
         private readonly UnlockService _unlock;
+        private readonly ContextStore _contexts;
         private readonly Dictionary<string, DateTime> _grants = new Dictionary<string, DateTime>();
 
-        public SecretBroker(IPluginHost host, UnlockService unlock)
+        public SecretBroker(IPluginHost host, UnlockService unlock, ContextStore contexts)
         {
             _host = host;
             _unlock = unlock;
+            _contexts = contexts;
         }
 
         /// <summary>Called on the pipe thread; runs the request on KeePass's UI thread.</summary>
@@ -46,6 +50,17 @@ namespace KeePassFido2.Agent
             if (main.IsDisposed) return KpResponse.Failure("KeePass is closing.");
             try
             {
+                switch (request.Kind)
+                {
+                    case KpRequestKind.Context:
+                        return HandleContext(request, client);
+                    case KpRequestKind.ContextList:
+                        return ListContexts();
+                    case KpRequestKind.ContextRemove:
+                        return _contexts.Remove(request.Context)
+                            ? new KpResponse { Ok = true }
+                            : KpResponse.Failure($"There is no context '{request.Context}'.");
+                }
                 return (KpResponse)main.Invoke(new Func<KpResponse>(() => HandleOnUiThread(request, client)));
             }
             catch (Exception ex)
@@ -93,18 +108,44 @@ namespace KeePassFido2.Agent
             if (Application.OpenForms.OfType<KeyPromptForm>().Any())
                 return KpResponse.Busy("Waiting for the database to be unlocked in KeePass.");
 
+            // KeePass is still loading a database whose prompt was just answered: this request
+            // runs in the message loop KeePass pumps while decrypting, and opening now is refused.
+            if (main.UIIsInteractionBlocked())
+                return KpResponse.Busy("Waiting for KeePass to finish opening the database.");
+
             IOConnectionInfo target = databasePath != null
                 ? IOConnectionInfo.FromPath(databasePath)
                 : main.DocumentManager.Documents.Where(d => main.IsFileLocked(d)).Select(d => d.LockedIoc).FirstOrDefault()
                   ?? NonEmpty(KeePass.Program.Config.Application.LastUsedFile);
             if (target == null)
                 return KpResponse.Failure("KeePass has no database open. Open one, or pass --database PATH.");
+            if (target.IsLocalFile() && !System.IO.File.Exists(target.Path))
+                return KpResponse.Failure($"{target.Path} does not exist.");
 
             main.EnsureVisibleForegroundWindow(true, true);
-            main.OpenDatabase(target, null, false);
+            bool prompted = false;
+            EventHandler<GwmWindowEventArgs> watchPrompt = (s, e) => prompted |= e.Form is KeyPromptForm;
+            GlobalWindowManager.WindowAdded += watchPrompt;
+            try
+            {
+                main.OpenDatabase(target, null, false);
+            }
+            finally
+            {
+                GlobalWindowManager.WindowAdded -= watchPrompt;
+            }
 
             databases = OpenDatabasesMatching(databasePath ?? target.Path);
-            return databases.Count > 0 ? null : KpResponse.Failure("The database was not unlocked.");
+            if (databases.Count > 0) return null;
+
+            // No prompt appeared, so KeePass did not take the request (for instance while it
+            // finishes loading); a dismissed prompt, on the other hand, is a real refusal.
+            if (!prompted)
+                return KpResponse.Busy("Waiting for KeePass to finish opening the database.");
+            List<string> open = main.DocumentManager.GetOpenDatabases().Select(db => db.IOConnectionInfo.Path).ToList();
+            return KpResponse.Failure(open.Count == 0
+                ? "The database was not unlocked."
+                : $"{target.Path} is not among the unlocked databases: {string.Join(", ", open)}.");
         }
 
         private List<PwDatabase> OpenDatabasesMatching(string databasePath)
@@ -118,9 +159,151 @@ namespace KeePassFido2.Agent
         private static IOConnectionInfo NonEmpty(IOConnectionInfo ioc) =>
             ioc == null || string.IsNullOrEmpty(ioc.Path) ? null : ioc;
 
-        private KpResponse Resolve(KpRequest request, ClientProcess client, List<PwDatabase> databases)
+        private KpResponse Resolve(KpRequest request, ClientProcess client, List<PwDatabase> databases) =>
+            ResolveReferences(client, request.WorkingDirectory, request.Command, request.References, databases, null);
+
+        /// <summary>
+        /// Opens the picker for a new context (or a repick) without blocking KeePass, so the user
+        /// can select entries in the main window; an existing context is resolved directly.
+        /// Called on the pipe thread.
+        /// </summary>
+        private KpResponse HandleContext(KpRequest request, ClientProcess client)
         {
-            List<string> references = request.References.Distinct(StringComparer.Ordinal).ToList();
+            if (!ContextStore.IsValidName(request.Context))
+                return KpResponse.Failure("Context names are 1-64 letters, digits, '.', '-' or '_', starting with a letter or digit.");
+
+            string invalidSlot = request.Slots.FirstOrDefault(s => !ContextStore.IsValidVariableName(s));
+            if (invalidSlot != null)
+                return KpResponse.Failure($"'{invalidSlot}' is not a valid environment variable name.");
+
+            MainForm main = _host.MainWindow;
+            SavedContext existing = _contexts.Find(request.Context);
+            bool coversSlots = existing != null && request.Slots.All(slot =>
+                existing.Variables.Any(v => string.Equals(v.Name, slot, StringComparison.OrdinalIgnoreCase)));
+            SavedContext saved = !request.Repick && coversSlots ? existing : null;
+            if (saved != null)
+                return (KpResponse)main.Invoke(new Func<KpResponse>(() => ResolveContext(request, client, saved)));
+
+            KpResponse result = null;
+            using (var done = new ManualResetEvent(false))
+            {
+                main.Invoke(new Action(() =>
+                {
+                    KpResponse notReady = EnsureDatabaseOpen(request.DatabasePath, out _);
+                    if (notReady != null)
+                    {
+                        result = notReady;
+                        done.Set();
+                        return;
+                    }
+
+                    ContextPickerDialog.Open(main, new ContextPickerRequest
+                    {
+                        ContextName = request.Context,
+                        Client = client,
+                        WorkingDirectory = request.WorkingDirectory,
+                        Command = request.Command,
+                        Slots = request.Slots,
+                        Previous = existing,
+                        MethodsFor = MethodsFor,
+                        Complete = picked => CompletePick(request, client, picked),
+                        Finished = response =>
+                        {
+                            result = response;
+                            done.Set();
+                        },
+                    });
+                }));
+                done.WaitOne();
+            }
+            return result;
+        }
+
+        private KpResponse ResolveContext(KpRequest request, ClientProcess client, SavedContext context)
+        {
+            // Prefer whatever is unlocked; only fall back to the context's database file when
+            // nothing is, since synced folders can show the same file under another drive letter.
+            string databasePath = request.DatabasePath;
+            if (databasePath == null && _host.MainWindow.DocumentManager.GetOpenDatabases().Count == 0 && System.IO.File.Exists(context.DatabasePath))
+                databasePath = context.DatabasePath;
+
+            KpResponse notReady = EnsureDatabaseOpen(databasePath, out List<PwDatabase> databases);
+            if (notReady != null) return notReady;
+
+            List<string> references = context.Variables.Select(v => v.Reference).ToList();
+            KpResponse resolved = ResolveReferences(client, request.WorkingDirectory, request.Command, references, databases,
+                $"A program wants the values of context \"{context.Name}\"");
+            if (!resolved.Ok)
+            {
+                if (!resolved.Retry && resolved.Error.Contains("no such entry"))
+                    resolved.Error += Environment.NewLine + "An entry of the context was deleted; run again with --repick to choose the entries anew.";
+                return resolved;
+            }
+
+            Dictionary<string, string> values = resolved.Values.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+            var response = new KpResponse { Ok = true };
+            foreach (ContextVariable variable in context.Variables)
+            {
+                response.Values.Add(new KpPair(variable.Name, values[variable.Reference]));
+                response.Labels.Add(new KpPair(variable.Name, variable.Label));
+            }
+            return response;
+        }
+
+        /// <summary>
+        /// Runs when the user clicks Share in the picker: verifies presence, saves the context and
+        /// returns its values. Null keeps the picker open, e.g. when the Windows Hello prompt was
+        /// dismissed.
+        /// </summary>
+        private KpResponse CompletePick(KpRequest request, ClientProcess client, PickedContext picked)
+        {
+            List<PwDatabase> databases = picked.Rows.Select(r => r.Database).Distinct().ToList();
+            if (!Verify(new ApprovalResult { Choice = picked.Choice }, databases)) return null;
+
+            var context = new SavedContext
+            {
+                Name = request.Context,
+                DatabasePath = databases[0].IOConnectionInfo.Path,
+                UpdatedUtc = DateTime.UtcNow,
+            };
+            var response = new KpResponse { Ok = true };
+            foreach (PickedRow row in picked.Rows)
+            {
+                context.Variables.Add(new ContextVariable
+                {
+                    Name = row.VariableName,
+                    Reference = SecretReference.ForUuid(row.Entry.Uuid.ToHexString(), row.Field).ToString(),
+                    Label = row.Label,
+                });
+                response.Values.Add(new KpPair(row.VariableName, row.Entry.Strings.ReadSafe(row.Field)));
+                response.Labels.Add(new KpPair(row.VariableName, row.Label));
+                row.Entry.Touch(false);
+            }
+            _contexts.Save(context);
+
+            if (picked.Remember)
+            {
+                string grantKey = GrantKey(client, request.WorkingDirectory, context.Variables.Select(v => v.Reference).Distinct(StringComparer.Ordinal));
+                lock (_grants) _grants[grantKey] = DateTime.UtcNow + GrantLifetime;
+            }
+            return response;
+        }
+
+        private KpResponse ListContexts()
+        {
+            var response = new KpResponse { Ok = true };
+            foreach (SavedContext context in _contexts.All())
+            {
+                response.Values.Add(new KpPair(context.Name, string.Join(", ", context.Variables.Select(v => v.Name))));
+                foreach (ContextVariable variable in context.Variables)
+                    response.Labels.Add(new KpPair(context.Name + "/" + variable.Name, variable.Label));
+            }
+            return response;
+        }
+
+        private KpResponse ResolveReferences(ClientProcess client, string workingDirectory, string command, IEnumerable<string> requested, List<PwDatabase> databases, string heading)
+        {
+            List<string> references = requested.Distinct(StringComparer.Ordinal).ToList();
             if (references.Count == 0) return new KpResponse { Ok = true };
 
             var resolved = new List<ResolvedReference>();
@@ -140,17 +323,17 @@ namespace KeePassFido2.Agent
             if (problems.Count > 0)
                 return KpResponse.Failure(string.Join(Environment.NewLine, problems));
 
-            string grantKey = GrantKey(client, request.WorkingDirectory, references);
+            string grantKey = GrantKey(client, workingDirectory, references);
             if (!HasGrant(grantKey))
             {
                 var approval = ApprovalDialog.Ask(new ApprovalRequest
                 {
-                    Heading = references.Count == 1
+                    Heading = heading ?? (references.Count == 1
                         ? "A program wants to read 1 value from KeePass"
-                        : $"A program wants to read {references.Count} values from KeePass",
+                        : $"A program wants to read {references.Count} values from KeePass"),
                     Client = client,
-                    WorkingDirectory = request.WorkingDirectory,
-                    Command = request.Command,
+                    WorkingDirectory = workingDirectory,
+                    Command = command,
                     DatabaseName = string.Join(", ", resolved.Select(r => DatabaseName(r.Database)).Distinct()),
                     Items = resolved.Select(r => DescribeEntry(r)).ToList(),
                     CanRemember = true,

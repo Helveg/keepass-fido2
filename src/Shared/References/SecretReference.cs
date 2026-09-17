@@ -54,6 +54,10 @@ namespace KeePassFido2.References
         public static SecretReference ForEntry(IEnumerable<string> groupPath, string entryTitle, string field = DefaultField) =>
             new SecretReference(groupPath.ToList(), entryTitle, null, NormalizeField(field));
 
+        /// <param name="entryUuid">32 hex digits, e.g. from KeePass's PwUuid.ToHexString().</param>
+        public static SecretReference ForUuid(string entryUuid, string field = DefaultField) =>
+            new SecretReference(new List<string>(), null, entryUuid.ToLowerInvariant(), NormalizeField(field));
+
         public static bool TryParse(string text, out SecretReference reference, out string error)
         {
             reference = null;

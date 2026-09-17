@@ -59,6 +59,28 @@ namespace KeePassFido2.Kp
             return response.Values.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         }
 
+        /// <summary>
+        /// The variables of a named context; KeePass shows the picker first when the context
+        /// does not exist, lacks one of <paramref name="slots"/>, or <paramref name="repick"/> is set.
+        /// </summary>
+        public static KpResponse Context(string name, bool repick, IList<string> slots, string command, KeePassTarget target) =>
+            Send(new KpRequest
+            {
+                Kind = KpRequestKind.Context,
+                WorkingDirectory = Environment.CurrentDirectory,
+                Command = command,
+                DatabasePath = target.DatabasePath,
+                Context = name,
+                Repick = repick,
+                Slots = slots.ToList(),
+            }, target);
+
+        public static KpResponse ListContexts(KeePassTarget target) =>
+            Send(new KpRequest { Kind = KpRequestKind.ContextList }, target);
+
+        public static void RemoveContext(string name, KeePassTarget target) =>
+            Send(new KpRequest { Kind = KpRequestKind.ContextRemove, Context = name }, target);
+
         private static KpResponse Send(KpRequest request, KeePassTarget target)
         {
             bool started = false;
