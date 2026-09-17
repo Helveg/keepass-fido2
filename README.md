@@ -131,7 +131,9 @@ The plugin is Windows-only: it uses Windows' WebAuthn API for security keys and 
 
 ## Installing
 
-**Plugin:** download `KeePassFido2.dll` from [Releases](https://github.com/Helveg/keepass-fido2/releases), copy it into the `Plugins` folder next to `KeePass.exe` and restart KeePass. Then open a database and use **Tools → KeePass FIDO2 → Manage unlock methods**. If Windows marked the download as coming from the internet, open its *Properties* and tick *Unblock* first.
+**Setup program (recommended):** download `keepass-fido2-<version>-setup.exe` from [Releases](https://github.com/Helveg/keepass-fido2/releases) and run it. It finds KeePass (or lets you pick a portable one), installs the plugin and optionally `kp` on your `PATH`, and uninstalls cleanly from *Settings → Apps*. Silent install: `keepass-fido2-<version>-setup.exe /VERYSILENT /KEEPASSDIR="C:\path\to\KeePass"`. The setup program is not code-signed yet, so Windows SmartScreen may ask for confirmation.
+
+**Plugin by hand:** download `KeePassFido2.dll`, copy it into the `Plugins` folder next to `KeePass.exe` and restart KeePass. Then open a database and use **Tools → KeePass FIDO2 → Manage unlock methods**. If Windows marked the download as coming from the internet, open its *Properties* and tick *Unblock* first.
 
 **kp (optional):** download `kp.exe`, and `kp-run` for WSL, into a folder on your `PATH`.
 

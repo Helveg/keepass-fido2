@@ -1,13 +1,21 @@
 <#
 .SYNOPSIS
     Tests, builds and collects the release files in dist\:
-    KeePassFido2.dll (the plugin), kp.exe, kp-run and SHA256SUMS.
+    KeePassFido2.dll (the plugin), kp.exe, kp-run, optionally the setup program, and SHA256SUMS.
 
 .PARAMETER Tag
     When releasing from a git tag, the tag must be v<version>.
+
+.PARAMETER Installer
+    Also build keepass-fido2-<version>-setup.exe with Inno Setup 6.
+
+.PARAMETER InnoSetupCompiler
+    Path to ISCC.exe; defaults to the standard Inno Setup 6 install location.
 #>
 param(
-    [string]$Tag
+    [string]$Tag,
+    [switch]$Installer,
+    [string]$InnoSetupCompiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +39,12 @@ if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 New-Item -ItemType Directory -Force $dist | Out-Null
 Copy-Item (Join-Path $root 'src\KeePassFido2\bin\Release\net48\KeePassFido2.dll') $dist
 Copy-Item (Join-Path $root 'src\Kp\bin\Release\net48\kp.exe'), (Join-Path $root 'src\Kp\bin\Release\net48\kp-run') $dist
+
+if ($Installer) {
+    if (-not (Test-Path $InnoSetupCompiler)) { throw "Inno Setup compiler not found at $InnoSetupCompiler. Install Inno Setup 6 or pass -InnoSetupCompiler." }
+    & $InnoSetupCompiler /Q "/DAppVersion=$version" "/DDistDir=$dist" "/DRepoDir=$root" (Join-Path $root 'installer\keepass-fido2.iss')
+    if ($LASTEXITCODE -ne 0) { throw 'Building the installer failed.' }
+}
 
 # sha256sum format, so `sha256sum -c SHA256SUMS` works as well as comparing by hand.
 $sums = Get-ChildItem $dist -File | Sort-Object Name | ForEach-Object {
