@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- .NET Framework 4.8 ships with Windows 10 and 11, so kp.exe runs without installing a runtime. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>kp</AssemblyName>
+    <RootNamespace>KeePassFido2.Kp</RootNamespace>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Product>KeePass FIDO2</Product>
+    <AssemblyTitle>kp</AssemblyTitle>
+    <Description>Fills kp:// references in .env files from KeePass and imports .env values into KeePass.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\**\*.cs" Link="Shared\%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="kp-run" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="KeePassFido2.Tests" />
+  </ItemGroup>
+
+</Project>

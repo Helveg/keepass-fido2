@@ -10,7 +10,9 @@
 param(
     [string]$Database,
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    # Install only; leave starting KeePass to you or to kp.exe.
+    [switch]$NoStart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,13 +26,24 @@ if (-not (Test-Path $keePassExe)) { throw 'Run scripts\dev-setup.ps1 first.' }
 $devKeePass = Get-Process KeePass -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $keePassExe }
 if ($devKeePass) { throw 'The development KeePass is still running; close it first so the plugin can be replaced.' }
 
-dotnet build (Join-Path $root 'src\KeePassFido2\KeePassFido2.csproj') -c $Configuration --nologo -v q
-if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+foreach ($project in 'src\KeePassFido2\KeePassFido2.csproj', 'src\Kp\Kp.csproj') {
+    dotnet build (Join-Path $root $project) -c $Configuration --nologo -v q
+    if ($LASTEXITCODE -ne 0) { throw "Build of $project failed." }
+}
 
 $plugins = Join-Path $dev 'KeePass\Plugins'
 New-Item -ItemType Directory -Force $plugins | Out-Null
 Copy-Item -Force (Join-Path $root "src\KeePassFido2\bin\$Configuration\net48\KeePassFido2.dll") $plugins
 
-$env:KEEPASS_FIDO2_STORE = Join-Path $dev 'unlock.xml'
+$bin = Join-Path $dev 'bin'
+New-Item -ItemType Directory -Force $bin | Out-Null
+Copy-Item -Force (Join-Path $root "src\Kp\bin\$Configuration\net48\kp.exe"), (Join-Path $root "src\Kp\bin\$Configuration\net48\kp-run") $bin
+Write-Host "kp.exe and kp-run are in $bin"
+
+$env:KEEPASS_FIDO2_STORE = Join-Path $dev "unlock.xml"
+if ($NoStart) {
+    Write-Host "Installed. Set KEEPASS_FIDO2_STORE=$env:KEEPASS_FIDO2_STORE before starting the development KeePass."
+    return
+}
 Start-Process -FilePath $keePassExe -ArgumentList "`"$Database`""
 Write-Host "Started development KeePass with $Database (store: $env:KEEPASS_FIDO2_STORE)"

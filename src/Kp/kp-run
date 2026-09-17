@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# kp-run [kp env options] -- command [args...]
+#
+# Runs a Linux command (e.g. in WSL) with the variables from .env files, kp:// references
+# resolved by KeePass on the Windows side. kp.exe cannot start Linux programs itself, so it
+# prints the variables NUL-separated and this script passes them to `env`.
+#
+#   kp-run -- docker compose up
+#   kp-run -f .env -f .env.local -- npm run dev
+#
+# Set KP_EXE when kp.exe is not on PATH.
+set -euo pipefail
+
+kp="${KP_EXE:-kp.exe}"
+options=()
+while [[ $# -gt 0 && "$1" != "--" ]]; do
+  options+=("$1")
+  shift
+done
+if [[ "${1:-}" != "--" || $# -lt 2 ]]; then
+  echo "usage: kp-run [-f FILE]... -- command [args...]" >&2
+  exit 64
+fi
+shift
+
+vars=()
+mapfile -d '' vars < <("$kp" env --format null --command "$*" "${options[@]}")
+wait $! || { echo "kp-run: kp.exe failed; not starting the command" >&2; exit 1; }
+
+exec env "${vars[@]}" "$@"

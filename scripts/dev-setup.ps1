@@ -60,6 +60,21 @@ if (-not (Test-Path $keePass)) {
 $enforced = Join-Path $keePass 'KeePass.config.enforced.xml'
 if (Test-Path $enforced) { Remove-Item $enforced }
 
+$sample = Join-Path $dev 'sample-project'
+if ($Force -or -not (Test-Path (Join-Path $sample '.env'))) {
+    New-Item -ItemType Directory -Force $sample | Out-Null
+    # Fake values for trying `kp import` and `kp run`.
+    @'
+# Sample project settings (fake values)
+PORT=3000
+DATABASE_URL="postgres://app:not-a-real-password@localhost:5432/app"
+JWT_SECRET=fake-jwt-secret-for-testing
+STRIPE_API_KEY=sk_test_fake_0123456789
+PUBLIC_BASE_URL=http://localhost:3000
+'@ | Set-Content -Encoding UTF8 (Join-Path $sample '.env')
+    Write-Host "Created $sample\.env with fake values"
+}
+
 if ($Force -and (Test-Path $database)) { Remove-Item $database }
 if (-not (Test-Path $database)) {
     [Reflection.Assembly]::LoadFrom((Join-Path $keePass 'KeePass.exe')) | Out-Null

@@ -1,0 +1,3 @@
+# Shell scripts run in WSL/Linux; CRLF line endings would break them.
+src/Kp/kp-run text eol=lf
+*.sh text eol=lf

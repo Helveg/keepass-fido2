@@ -5,6 +5,7 @@ using System.Windows.Forms;
 using KeePass.Forms;
 using KeePass.Plugins;
 using KeePass.UI;
+using KeePassFido2.Agent;
 using KeePassFido2.Storage;
 using KeePassFido2.UI;
 using KeePassFido2.Unlock;
@@ -20,6 +21,8 @@ namespace KeePassFido2
         private IPluginHost _host;
         private UnlockService _service;
         private KeyPromptIntegration _keyPrompt;
+        private SecretBroker _broker;
+        private SecretServer _server;
 
         public override string UpdateUrl => "https://raw.githubusercontent.com/Helveg/keepass-fido2/main/version.txt";
 
@@ -33,11 +36,16 @@ namespace KeePassFido2
             GlobalWindowManager.WindowAdded += OnWindowAdded;
             _host.MainWindow.FileOpened += OnFileOpened;
             _host.MainWindow.FileClosed += OnFileClosed;
+
+            _broker = new SecretBroker(_host, _service);
+            _server = new SecretServer(_broker.Handle);
+            _server.Start();
             return true;
         }
 
         public override void Terminate()
         {
+            _server?.Dispose();
             GlobalWindowManager.WindowAdded -= OnWindowAdded;
             if (_host == null) return;
             _host.MainWindow.FileOpened -= OnFileOpened;
@@ -90,6 +98,7 @@ namespace KeePassFido2
         {
             if (e.IOConnectionInfo != null)
                 _service.OnDatabaseClosed(e.IOConnectionInfo.Path);
+            _broker?.ForgetApprovals();
         }
 
         private void AddSecurityKey()

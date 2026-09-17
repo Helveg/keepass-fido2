@@ -116,6 +116,42 @@ namespace KeePassFido2.Unlock
             return UnwrapWithFido2Secret(record, method, secret.Secret);
         }
 
+        /// <summary>
+        /// Proves the user is present with a method set up for this database: the method has to
+        /// release the data key, and the data key has to authenticate the stored snapshot.
+        /// </summary>
+        public void VerifyPresence(IntPtr hwnd, string databasePath, UnlockMethodKind kind)
+        {
+            DatabaseRecord record = FindExactRecord(_store.Load(), databasePath)
+                ?? throw new UnlockFailedException("No unlock methods are set up for this database.");
+
+            byte[] dataKey;
+            if (kind == UnlockMethodKind.WindowsHello)
+            {
+                UnlockMethod hello = record.Methods.FirstOrDefault(m => m.Kind == UnlockMethodKind.WindowsHello)
+                    ?? throw new UnlockFailedException("Windows Hello is not set up for this database.");
+                dataKey = WindowsHelloAuthenticator.Unprotect(hwnd, hello.WrappedKey, "Allow access to " + DisplayName(databasePath));
+            }
+            else
+            {
+                dataKey = ReleaseWithSecurityKey(hwnd, record);
+            }
+
+            try
+            {
+                byte[] snapshot = Envelope.Open(dataKey, record.Payload, PayloadContext(record));
+                Array.Clear(snapshot, 0, snapshot.Length);
+            }
+            catch (CryptographicException)
+            {
+                throw new UnlockFailedException("The stored unlock data for this database is damaged.");
+            }
+            finally
+            {
+                Array.Clear(dataKey, 0, dataKey.Length);
+            }
+        }
+
         /// <summary>Called by KeePass's FileOpened event.</summary>
         public void OnDatabaseOpened(PwDatabase database)
         {

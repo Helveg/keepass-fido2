@@ -14,6 +14,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\KeePassFido2\KeePassFido2.csproj" />
+    <!-- Both projects compile src/Shared as internal types; tests reach kp.exe's copy through the alias. -->
+    <ProjectReference Include="..\..\src\Kp\Kp.csproj" Aliases="kp" />
     <!-- Copied next to the tests: KeePassLib lives inside KeePass.exe. -->
     <Reference Include="KeePass">
       <HintPath>$(KeePassExe)</HintPath>
