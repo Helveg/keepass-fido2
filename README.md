@@ -103,23 +103,23 @@ These are baked into credentials on users' keys and in the unlock store. They ne
 
 ## Requirements
 
-- Windows 10 or 11, KeePass 2.x (developed against 2.61), .NET Framework 4.8
-- A FIDO2 key with `hmac-secret` and a PIN, and/or Windows Hello
+- **Windows 10 or 11** with KeePass 2.x (developed against 2.61). .NET Framework 4.8 ships with Windows.
+- A FIDO2 key with `hmac-secret`, and/or Windows Hello
 - *Enter master key on secure desktop* must be **off**: Windows cannot show Hello or security key prompts there.
+
+The plugin is Windows-only: it uses Windows' WebAuthn API for security keys and the Windows Hello key storage. Under Mono on Linux or macOS it disables itself.
 
 ## Installing
 
-1. Download `keepass-fido2-<version>.zip` from [Releases](https://github.com/Helveg/keepass-fido2/releases) and check it against the `.sha256` file next to it.
-2. Close KeePass, extract the zip and run:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\install.ps1
-   ```
-   The installer copies `KeePassFido2.dll` into KeePass's `Plugins` folder (asking for administrator rights when KeePass lives in Program Files) and `kp.exe` / `kp-run` into `%LOCALAPPDATA%\Programs\keepass-fido2\bin`, which it adds to your `PATH`. Options: `-KeePassDir` for a portable KeePass, `-SkipPlugin`, `-SkipKp`.
-3. Start KeePass, open a database and use **Tools → KeePass FIDO2 → Manage unlock methods**.
+**Plugin:** download `KeePassFido2.dll` from [Releases](https://github.com/Helveg/keepass-fido2/releases), copy it into the `Plugins` folder next to `KeePass.exe` and restart KeePass. Then open a database and use **Tools → KeePass FIDO2 → Manage unlock methods**. If Windows marked the download as coming from the internet, open its *Properties* and tick *Unblock* first.
 
-To install by hand, unblock the extracted files (*Properties → Unblock*), copy `plugin\KeePassFido2.dll` into KeePass's `Plugins` folder and put `kp\kp.exe` on your `PATH`. Everything needs only .NET Framework 4.8, which ships with Windows 10 and 11.
+**kp (optional):** download `kp.exe`, and `kp-run` for WSL, into a folder on your `PATH`.
 
-The plugin ships as a DLL rather than a `.plgx`: KeePass compiles `.plgx` plugins on the user's machine with the C# compiler of .NET Framework, which does not support the language version and unsafe interop code the plugin uses.
+Compare downloads with `SHA256SUMS` from the same release (`Get-FileHash KeePassFido2.dll`).
+
+Each computer sets up its own unlock methods: Windows Hello keys are bound to the machine, and the database file itself is never changed.
+
+The plugin ships as a DLL rather than a `.plgx`: KeePass compiles `.plgx` plugins on the user's machine with the C# 5 compiler of .NET Framework, which cannot build this code, and a `.plgx` would not make the Windows-only plugin portable.
 
 ## Development
 
@@ -127,10 +127,10 @@ The plugin ships as a DLL rather than a `.plgx`: KeePass compiles `.plgx` plugin
 .\scripts\dev-setup.ps1   # isolated KeePass copy in .dev\, .dev\test.kdbx (password: test), .dev\sample-project\.env (fake values)
 .\scripts\dev-run.ps1     # build, install plugin into the copy and kp.exe into .dev\bin, start KeePass with its own unlock store
 dotnet test tests\KeePassFido2.Tests
-.\scripts\package.ps1     # tests, then dist\keepass-fido2-<version>.zip
+.\scripts\package.ps1     # tests, then dist\ with KeePassFido2.dll, kp.exe, kp-run and SHA256SUMS
 ```
 
-Releases: bump `<Version>` in `Directory.Build.props` and the line in `version.txt` (KeePass's update check reads it), then push a tag `v<version>`. GitHub Actions builds against a pinned portable KeePass (`scripts/fetch-keepass.ps1`), tests, packages and publishes the release.
+Releases: bump `<Version>` in `Directory.Build.props` and the line in `version.txt` (KeePass's update check reads it), then push a tag `v<version>`. GitHub Actions builds against a pinned portable KeePass (`scripts/fetch-keepass.ps1`), tests and publishes the files from `dist\` as a release.
 
 `tools/HmacSpike` is a small command-line tool that checks whether a security key returns a stable `hmac-secret` through `webauthn.dll`.
 

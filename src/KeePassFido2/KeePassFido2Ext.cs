@@ -7,6 +7,8 @@ using KeePassFido2.Agent;
 using KeePassFido2.Storage;
 using KeePassFido2.UI;
 using KeePassFido2.Unlock;
+using KeePassLib.Native;
+using KeePassLib.Utility;
 
 namespace KeePassFido2
 {
@@ -26,6 +28,12 @@ namespace KeePassFido2
         public override bool Initialize(IPluginHost host)
         {
             if (host == null) return false;
+            if (NativeLib.IsUnix())
+            {
+                MessageService.ShowWarning(Title + " works only on Windows: it relies on Windows Hello and Windows' security key API.",
+                    "The plugin is disabled. Remove KeePassFido2.dll from the Plugins folder to stop this message.");
+                return false;
+            }
             _host = host;
             _service = new UnlockService(new UnlockStore(UnlockStore.DefaultFilePath));
             _keyPrompt = new KeyPromptIntegration(_service, () => _host.CustomConfig.GetBool(AutoStartConfigKey, false));

@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Tests, builds and packages a release: dist\keepass-fido2-<version>.zip plus its SHA-256.
+    Tests, builds and collects the release files in dist\:
+    KeePassFido2.dll (the plugin), kp.exe, kp-run and SHA256SUMS.
 
 .PARAMETER Tag
     When releasing from a git tag, the tag must be v<version>.
@@ -26,20 +27,16 @@ if ($Tag -and $Tag -ne "v$version") { throw "Tag $Tag does not match version $ve
 dotnet test (Join-Path $root 'tests\KeePassFido2.Tests') -c Release --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 
-$name = "keepass-fido2-$version"
-$stage = Join-Path $dist $name
-if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-New-Item -ItemType Directory -Force (Join-Path $stage 'plugin'), (Join-Path $stage 'kp') | Out-Null
+if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
+New-Item -ItemType Directory -Force $dist | Out-Null
+Copy-Item (Join-Path $root 'src\KeePassFido2\bin\Release\net48\KeePassFido2.dll') $dist
+Copy-Item (Join-Path $root 'src\Kp\bin\Release\net48\kp.exe'), (Join-Path $root 'src\Kp\bin\Release\net48\kp-run') $dist
 
-Copy-Item (Join-Path $root 'src\KeePassFido2\bin\Release\net48\KeePassFido2.dll') (Join-Path $stage 'plugin')
-Copy-Item (Join-Path $root 'src\Kp\bin\Release\net48\kp.exe'), (Join-Path $root 'src\Kp\bin\Release\net48\kp-run') (Join-Path $stage 'kp')
-Copy-Item (Join-Path $root 'packaging\install.ps1'), (Join-Path $root 'README.md'), (Join-Path $root 'LICENSE') $stage
+# sha256sum format, so `sha256sum -c SHA256SUMS` works as well as comparing by hand.
+$sums = Get-ChildItem $dist -File | Sort-Object Name | ForEach-Object {
+    "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant())  $($_.Name)"
+}
+[IO.File]::WriteAllText((Join-Path $dist 'SHA256SUMS'), ($sums -join "`n") + "`n")
 
-$zip = Join-Path $dist "$name.zip"
-if (Test-Path $zip) { Remove-Item $zip }
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
-$hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
-Set-Content -Path "$zip.sha256" -Value "$hash  $name.zip" -Encoding ascii -NoNewline
-
-Write-Host "Packaged $zip"
-Write-Host "SHA-256 $hash"
+Write-Host "Release files for $version in $dist"
+$sums | ForEach-Object { Write-Host "  $_" }
