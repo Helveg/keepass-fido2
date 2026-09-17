@@ -107,11 +107,19 @@ These are baked into credentials on users' keys and in the unlock store. They ne
 - A FIDO2 key with `hmac-secret` and a PIN, and/or Windows Hello
 - *Enter master key on secure desktop* must be **off**: Windows cannot show Hello or security key prompts there.
 
-## Installing (development builds)
+## Installing
 
-Build `src/KeePassFido2`, copy `KeePassFido2.dll` into KeePass's `Plugins` folder and restart KeePass. Then use **Tools → KeePass FIDO2 → Manage unlock methods** with a database open.
+1. Download `keepass-fido2-<version>.zip` from [Releases](https://github.com/Helveg/keepass-fido2/releases) and check it against the `.sha256` file next to it.
+2. Close KeePass, extract the zip and run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1
+   ```
+   The installer copies `KeePassFido2.dll` into KeePass's `Plugins` folder (asking for administrator rights when KeePass lives in Program Files) and `kp.exe` / `kp-run` into `%LOCALAPPDATA%\Programs\keepass-fido2\bin`, which it adds to your `PATH`. Options: `-KeePassDir` for a portable KeePass, `-SkipPlugin`, `-SkipKp`.
+3. Start KeePass, open a database and use **Tools → KeePass FIDO2 → Manage unlock methods**.
 
-For `kp`, build `src/Kp` and put `kp.exe` (and `kp-run` for WSL) in a folder on your `PATH`. It needs only .NET Framework 4.8, which ships with Windows 10 and 11.
+To install by hand, unblock the extracted files (*Properties → Unblock*), copy `plugin\KeePassFido2.dll` into KeePass's `Plugins` folder and put `kp\kp.exe` on your `PATH`. Everything needs only .NET Framework 4.8, which ships with Windows 10 and 11.
+
+The plugin ships as a DLL rather than a `.plgx`: KeePass compiles `.plgx` plugins on the user's machine with the C# compiler of .NET Framework, which does not support the language version and unsafe interop code the plugin uses.
 
 ## Development
 
@@ -119,14 +127,17 @@ For `kp`, build `src/Kp` and put `kp.exe` (and `kp-run` for WSL) in a folder on 
 .\scripts\dev-setup.ps1   # isolated KeePass copy in .dev\, .dev\test.kdbx (password: test), .dev\sample-project\.env (fake values)
 .\scripts\dev-run.ps1     # build, install plugin into the copy and kp.exe into .dev\bin, start KeePass with its own unlock store
 dotnet test tests\KeePassFido2.Tests
+.\scripts\package.ps1     # tests, then dist\keepass-fido2-<version>.zip
 ```
+
+Releases: bump `<Version>` in `Directory.Build.props` and the line in `version.txt` (KeePass's update check reads it), then push a tag `v<version>`. GitHub Actions builds against a pinned portable KeePass (`scripts/fetch-keepass.ps1`), tests, packages and publishes the release.
 
 `tools/HmacSpike` is a small command-line tool that checks whether a security key returns a stable `hmac-secret` through `webauthn.dll`.
 
 ## Roadmap
 
 - Option to require the master key once after every reboot
-- Release packaging (`.plgx`, `kp.exe`) and a listing on the KeePass plugin page
+- A listing on the KeePass plugin page
 
 ## License
 

@@ -10,3 +10,6 @@ TestResults/
 
 # Credential ids written by tools/HmacSpike
 credential*.id
+
+# Release packages from scripts/package.ps1
+dist/
