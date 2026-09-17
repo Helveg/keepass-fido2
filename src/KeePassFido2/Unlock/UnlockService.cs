@@ -252,19 +252,41 @@ namespace KeePassFido2.Unlock
             return added;
         }
 
-        public IList<UnlockMethod> GetMethods(string databasePath) =>
-            FindExactRecord(_store.Load(), databasePath)?.Methods ?? new List<UnlockMethod>();
-
-        public void RemoveAll(string databasePath)
+        /// <summary>
+        /// Removes one method. The last method takes the whole record with it, including the
+        /// encrypted snapshot.
+        /// </summary>
+        /// <remarks>
+        /// This does not revoke a lost key against an older copy of the store, which still holds
+        /// a wrapped data key for it; changing the database's master key does.
+        /// </remarks>
+        public void RemoveMethod(string databasePath, string methodId)
         {
             StoreDocument document = _store.Load();
             DatabaseRecord record = FindExactRecord(document, databasePath);
-            if (record == null) return;
-            document.Databases.Remove(record);
+            if (record == null || record.Methods.RemoveAll(m => m.Id == methodId) == 0) return;
+
+            if (record.Methods.Count == 0)
+            {
+                document.Databases.Remove(record);
+                OnDatabaseClosed(databasePath);
+                _stale.Remove(UnlockStore.NormalizePath(databasePath));
+            }
             _store.Save(document);
-            OnDatabaseClosed(databasePath);
-            _stale.Remove(UnlockStore.NormalizePath(databasePath));
         }
+
+        public void RenameMethod(string databasePath, string methodId, string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return;
+            StoreDocument document = _store.Load();
+            UnlockMethod method = FindExactRecord(document, databasePath)?.Methods.FirstOrDefault(m => m.Id == methodId);
+            if (method == null) return;
+            method.Label = label.Trim();
+            _store.Save(document);
+        }
+
+        public IList<UnlockMethod> GetMethods(string databasePath) =>
+            FindExactRecord(_store.Load(), databasePath)?.Methods ?? new List<UnlockMethod>();
 
         private CompositeKey Inject(string databasePath, DatabaseRecord record, bool exactMatch, byte[] dataKey)
         {

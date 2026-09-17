@@ -130,7 +130,9 @@ namespace KeePassFido2.Kp
             string exe = target.KeePassExe ?? FindKeePass()
                 ?? throw new KpException("KeePass is not running and KeePass.exe was not found. Pass --keepass PATH or set KP_KEEPASS.");
 
-            var start = new ProcessStartInfo(exe) { UseShellExecute = false };
+            // Shell execute: KeePass must not inherit kp's stdout/stderr, or whoever reads kp's
+            // output (a script, `$(kp env)`) would wait until KeePass exits.
+            var start = new ProcessStartInfo(exe) { UseShellExecute = true };
             if (target.DatabasePath != null) start.Arguments = CommandLauncher.QuoteArgument(target.DatabasePath);
             Process.Start(start)?.Dispose();
         }

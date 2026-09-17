@@ -109,7 +109,7 @@ These are baked into credentials on users' keys and in the unlock store. They ne
 
 ## Installing (development builds)
 
-Build `src/KeePassFido2`, copy `KeePassFido2.dll` into KeePass's `Plugins` folder and restart KeePass. Then use **Tools → KeePass FIDO2** with a database open.
+Build `src/KeePassFido2`, copy `KeePassFido2.dll` into KeePass's `Plugins` folder and restart KeePass. Then use **Tools → KeePass FIDO2 → Manage unlock methods** with a database open.
 
 For `kp`, build `src/Kp` and put `kp.exe` (and `kp-run` for WSL) in a folder on your `PATH`. It needs only .NET Framework 4.8, which ships with Windows 10 and 11.
 
@@ -126,7 +126,6 @@ dotnet test tests\KeePassFido2.Tests
 ## Roadmap
 
 - Option to require the master key once after every reboot
-- Manage and remove individual unlock methods
 - Release packaging (`.plgx`, `kp.exe`) and a listing on the KeePass plugin page
 
 ## License
