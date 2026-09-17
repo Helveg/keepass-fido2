@@ -1,0 +1,21 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Version>0.1.0</Version>
+    <Authors>Robin De Schepper</Authors>
+    <Copyright>Copyright (C) 2026 Robin De Schepper</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Helveg/keepass-fido2</RepositoryUrl>
+  </PropertyGroup>
+
+  <!-- KeePass.exe used for compiling the plugin and running tests. Override with
+       -p:KeePassExe=... ; defaults to the dev copy from scripts/dev-setup.ps1, then the
+       standard install location. -->
+  <PropertyGroup>
+    <KeePassExe Condition="'$(KeePassExe)' == '' And Exists('$(MSBuildThisFileDirectory).dev\KeePass\KeePass.exe')">$(MSBuildThisFileDirectory).dev\KeePass\KeePass.exe</KeePassExe>
+    <KeePassExe Condition="'$(KeePassExe)' == ''">$(ProgramW6432)\KeePass Password Safe 2\KeePass.exe</KeePassExe>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,12 @@
+bin/
+obj/
+out/
+.vs/
+*.user
+TestResults/
+
+# Portable KeePass copy, test database and unlock store from scripts/dev-setup.ps1
+.dev/
+
+# Credential ids written by tools/HmacSpike
+credential*.id

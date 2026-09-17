@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- KeePass loads plugins by convention: the assembly, root namespace and the
+       KeePassFido2Ext class must all share the name "KeePassFido2", and
+       AssemblyProduct must be "KeePass Plugin". -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>KeePassFido2</AssemblyName>
+    <RootNamespace>KeePassFido2</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Product>KeePass Plugin</Product>
+    <AssemblyTitle>KeePass FIDO2</AssemblyTitle>
+    <Description>Unlock KeePass databases with FIDO2 security keys and Windows Hello.</Description>
+    <Company>Robin De Schepper</Company>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="KeePass">
+      <HintPath>$(KeePassExe)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="KeePassFido2.Tests" />
+  </ItemGroup>
+
+</Project>
