@@ -3,7 +3,7 @@
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Robin De Schepper</Authors>
     <Copyright>Copyright (C) 2026 Robin De Schepper</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
