@@ -33,7 +33,7 @@ namespace KeePassFido2.UI
     internal sealed class ApprovalResult
     {
         public ApprovalChoice Choice { get; set; }
-        public bool Remember { get; set; }
+        public RememberScope Remember { get; set; }
     }
 
     /// <summary>
@@ -43,6 +43,8 @@ namespace KeePassFido2.UI
     internal sealed class ApprovalDialog : Form
     {
         private readonly CheckBox _remember;
+        private readonly RadioButton _theseValues;
+        private readonly RadioButton _wholeDatabase;
         private ApprovalChoice _choice = ApprovalChoice.Denied;
 
         private ApprovalDialog(ApprovalRequest request)
@@ -86,14 +88,30 @@ namespace KeePassFido2.UI
             items.Height = items.ItemHeight * Math.Min(Math.Max(request.Items.Count, 2), 10) + 4;
             layout.Controls.Add(items);
 
+            // Don't ask again for 8 hours: these values, or anything this program reads from
+            // the database in this folder (ApprovalGrants).
             _remember = new CheckBox
             {
-                Text = "Don't ask again for this program, folder and these values for 8 hours",
+                Text = "Don't ask again for 8 hours, for this program in this folder:",
                 AutoSize = true,
-                Visible = request.CanRemember,
-                Margin = new Padding(0, 0, 0, 10),
+                Margin = new Padding(0, 0, 0, 2),
             };
-            if (request.CanRemember) layout.Controls.Add(_remember);
+            _theseValues = new RadioButton { Text = "these values", AutoSize = true, Checked = true, Enabled = false, Margin = new Padding(20, 0, 0, 0) };
+            _wholeDatabase = new RadioButton
+            {
+                Text = $"any value in {request.DatabaseName}",
+                AutoSize = true,
+                Enabled = false,
+                MaximumSize = new Size(width - 20, 0),
+                Margin = new Padding(20, 0, 0, 10),
+            };
+            _remember.CheckedChanged += (s, e) => _theseValues.Enabled = _wholeDatabase.Enabled = _remember.Checked;
+            if (request.CanRemember)
+            {
+                layout.Controls.Add(_remember);
+                layout.Controls.Add(_theseValues);
+                layout.Controls.Add(_wholeDatabase);
+            }
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
             var deny = AddButton(buttons, "Deny", ApprovalChoice.Denied);
@@ -127,7 +145,10 @@ namespace KeePassFido2.UI
             using (var dialog = new ApprovalDialog(request))
             {
                 dialog.ShowDialog();
-                return new ApprovalResult { Choice = dialog._choice, Remember = dialog._remember.Checked };
+                RememberScope remember = !dialog._remember.Checked ? RememberScope.None
+                    : dialog._wholeDatabase.Checked ? RememberScope.WholeDatabase
+                    : RememberScope.TheseValues;
+                return new ApprovalResult { Choice = dialog._choice, Remember = remember };
             }
         }
 
