@@ -124,6 +124,14 @@ namespace KeePassFido2.References
             return builder.ToString();
         }
 
+        /// <summary>The prefix every reference into this group starts with, e.g. <c>kp://Work/my%20project/</c>.</summary>
+        public static string GroupPrefix(IEnumerable<string> groupPath)
+        {
+            var builder = new StringBuilder(Scheme);
+            foreach (string group in groupPath) builder.Append(Encode(group)).Append('/');
+            return builder.ToString();
+        }
+
         private static string NormalizeField(string field) =>
             StandardFields.TryGetValue(field, out string standard) ? standard : field;
 

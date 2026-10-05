@@ -84,6 +84,18 @@ Contexts are stored on this computer next to the unlock data (`contexts.xml`) an
 kp run --context tablet --slot WIFI_SSID --slot WIFI_PASSWORD -- pwsh -c 'tools\adb-type.ps1 $env:WIFI_SSID $env:WIFI_PASSWORD -Enter'
 ```
 
+### Seeing what is where
+
+```powershell
+kp tree                         # every group and entry title in the database
+kp tree Work --depth 1          # Work's entries and the groups directly in it
+kp tree Work/my-project --fields --format references
+```
+
+`kp tree` lists names below a group, after an approval in KeePass: group names, entry titles and, with `--fields`, which fields hold something (`UserName`, `URL`, custom fields). It never returns a value, but names alone can say which bank or client you use, so the approval window shows the group and what will be listed, and can be remembered like any other. `--no-entries` lists groups only. `--format references` prints one `kp://` reference per line, ready to paste into a `.env`. The recycle bin is left out.
+
+Use it before writing references or importing, so a new entry goes into the group that already holds the project's others instead of a new one.
+
 ### Moving existing values into KeePass
 
 ```powershell

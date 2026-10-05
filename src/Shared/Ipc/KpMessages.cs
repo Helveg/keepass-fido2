@@ -80,6 +80,9 @@ namespace KeePassFido2.Ipc
 
         public const string ContextList = "context-list";
         public const string ContextRemove = "context-remove";
+
+        /// <summary>Names of the groups, entries and fields below a group; never values.</summary>
+        public const string Tree = "tree";
     }
 
     [DataContract]
@@ -114,6 +117,15 @@ namespace KeePassFido2.Ipc
         /// the user can assign entry fields to them.
         /// </summary>
         [DataMember] public List<string> Slots { get; set; } = new List<string>();
+
+        /// <summary>Tree: slash-separated group path to list below; null or empty for the root.</summary>
+        [DataMember] public string GroupPath { get; set; }
+
+        /// <summary>Tree: how many levels below the group to list; 0 for all of them.</summary>
+        [DataMember] public int Depth { get; set; }
+
+        [DataMember] public bool IncludeEntries { get; set; }
+        [DataMember] public bool IncludeFields { get; set; }
     }
 
     internal static class KpConflict
@@ -168,8 +180,28 @@ namespace KeePassFido2.Ipc
         /// <summary>Context: variable name → "Group / Entry / Field", which is not secret, for display.</summary>
         [DataMember] public List<KpPair> Labels { get; set; } = new List<KpPair>();
 
+        /// <summary>Tree: groups and entries depth-first, each group before what it contains.</summary>
+        [DataMember] public List<KpTreeNode> Tree { get; set; } = new List<KpTreeNode>();
+
         public static KpResponse Failure(string error) => new KpResponse { Ok = false, Error = error };
 
         public static KpResponse Busy(string reason) => new KpResponse { Ok = false, Retry = true, Error = reason };
+    }
+
+    /// <summary>A group or entry in a <see cref="KpRequestKind.Tree"/> response: names only.</summary>
+    [DataContract]
+    internal sealed class KpTreeNode
+    {
+        /// <summary>The database's name, or its file name when it has none.</summary>
+        [DataMember] public string Database { get; set; }
+
+        /// <summary>Group names below the root: the group itself, or the group holding the entry.</summary>
+        [DataMember] public List<string> GroupPath { get; set; } = new List<string>();
+
+        /// <summary>The entry's title; null for a group.</summary>
+        [DataMember] public string Entry { get; set; }
+
+        /// <summary>Names of the entry's fields that hold a value, when fields were asked for.</summary>
+        [DataMember] public List<string> Fields { get; set; } = new List<string>();
     }
 }

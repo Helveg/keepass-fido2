@@ -75,6 +75,20 @@ namespace KeePassFido2.Kp
                 Slots = slots.ToList(),
             }, target);
 
+        /// <summary>Names below <paramref name="groupPath"/> in the unlocked databases, after approval in KeePass.</summary>
+        public static IList<KpTreeNode> Tree(string groupPath, int depth, bool includeEntries, bool includeFields, string command, KeePassTarget target) =>
+            Send(new KpRequest
+            {
+                Kind = KpRequestKind.Tree,
+                WorkingDirectory = Environment.CurrentDirectory,
+                Command = command,
+                DatabasePath = target.DatabasePath,
+                GroupPath = groupPath,
+                Depth = depth,
+                IncludeEntries = includeEntries,
+                IncludeFields = includeFields,
+            }, target).Tree;
+
         public static KpResponse ListContexts(KeePassTarget target) =>
             Send(new KpRequest { Kind = KpRequestKind.ContextList }, target);
 
