@@ -18,8 +18,8 @@ using KeePassLib.Serialization;
 namespace KeePassFido2.Agent
 {
     /// <summary>
-    /// Answers kp.exe requests on KeePass's UI thread: resolves entry references and imports
-    /// values, each after the user approves in <see cref="ApprovalDialog"/>.
+    /// Answers kp.exe requests on KeePass's UI thread: resolves entry references, imports
+    /// values and lists names, each after the user approves in <see cref="ApprovalDialog"/>.
     /// </summary>
     /// <remarks>
     /// When the database has Windows Hello or a security key set up, approving requires that
@@ -82,11 +82,15 @@ namespace KeePassFido2.Agent
                     return new KpResponse { Ok = true };
                 case KpRequestKind.Resolve:
                 case KpRequestKind.Import:
+                case KpRequestKind.Tree:
                     KpResponse notReady = EnsureDatabaseOpen(request.DatabasePath, out List<PwDatabase> databases);
                     if (notReady != null) return notReady;
-                    return request.Kind == KpRequestKind.Resolve
-                        ? Resolve(request, client, databases)
-                        : Import(request, client, databases);
+                    switch (request.Kind)
+                    {
+                        case KpRequestKind.Resolve: return Resolve(request, client, databases);
+                        case KpRequestKind.Import: return Import(request, client, databases);
+                        default: return Tree(request, client, databases);
+                    }
                 default:
                     return KpResponse.Failure($"Unknown request '{request.Kind}'.");
             }
@@ -365,11 +369,7 @@ namespace KeePassFido2.Agent
             if (database == null)
                 return KpResponse.Failure("Several databases are unlocked. Select the target database in KeePass, or pass --database PATH.");
 
-            string[] groupPath = (import.GroupPath ?? string.Empty)
-                .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Where(s => s.Length > 0)
-                .ToArray();
+            string[] groupPath = SplitGroupPath(import.GroupPath);
             PwGroup existingGroup = EntryFinder.FindGroup(database, groupPath);
 
             var conflicts = import.Items
@@ -436,6 +436,67 @@ namespace KeePassFido2.Agent
                 return KpResponse.Failure("The values were added in KeePass, but saving the database failed. Save it in KeePass, then run the import again with --on-conflict skip.");
             return response;
         }
+
+        /// <summary>
+        /// Names below a group in every unlocked database that has it. Names can say a lot
+        /// (which bank, which client), so this is approved like a value, scope shown.
+        /// </summary>
+        private KpResponse Tree(KpRequest request, ClientProcess client, List<PwDatabase> databases)
+        {
+            if (request.Depth < 0) return KpResponse.Failure("The depth cannot be negative.");
+            string[] groupPath = SplitGroupPath(request.GroupPath);
+
+            var found = databases
+                .Select(db => (Database: db, Group: groupPath.Length == 0 ? db.RootGroup : EntryFinder.FindGroup(db, groupPath)))
+                .Where(x => x.Group != null)
+                .ToList();
+            if (found.Count == 0)
+                return KpResponse.Failure($"There is no group '{string.Join("/", groupPath)}' in the unlocked databases.");
+
+            string scope = groupPath.Length == 0 ? "Everything" : $"Group {string.Join(" / ", groupPath)}, and everything below it";
+            if (request.Depth > 0) scope += $", {request.Depth} level{(request.Depth == 1 ? "" : "s")} deep";
+            var items = new List<string> { scope, "Group names" };
+            if (request.IncludeEntries) items.Add("Entry titles");
+            if (request.IncludeFields) items.Add("Which fields each entry has (not what is in them)");
+
+            string grantKey = GrantKey(client, request.WorkingDirectory, new[]
+            {
+                $"tree:{string.Join("/", groupPath)}:{request.Depth}:{request.IncludeEntries}:{request.IncludeFields}",
+            });
+            if (!HasGrant(grantKey))
+            {
+                var approval = ApprovalDialog.Ask(new ApprovalRequest
+                {
+                    Heading = "A program wants to see names in KeePass, not values",
+                    Client = client,
+                    WorkingDirectory = request.WorkingDirectory,
+                    Command = request.Command,
+                    DatabaseName = string.Join(", ", found.Select(x => DatabaseName(x.Database))),
+                    Items = items,
+                    CanRemember = true,
+                    Methods = MethodsFor(found.Select(x => x.Database)),
+                });
+                if (!Verify(approval, found.Select(x => x.Database)))
+                    return KpResponse.Failure("Access was denied in KeePass.");
+                if (approval.Remember)
+                    lock (_grants) _grants[grantKey] = DateTime.UtcNow + GrantLifetime;
+            }
+
+            var response = new KpResponse { Ok = true };
+            foreach (var (database, group) in found)
+            {
+                response.Tree.AddRange(TreeLister.List(database, DatabaseName(database), group, TreeLister.PathOf(database, group),
+                    request.Depth, request.IncludeEntries, request.IncludeFields));
+            }
+            return response;
+        }
+
+        private static string[] SplitGroupPath(string groupPath) =>
+            (groupPath ?? string.Empty)
+                .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 0)
+                .ToArray();
 
         private IList<UnlockMethodKind> MethodsFor(IEnumerable<PwDatabase> databases) =>
             databases

@@ -46,6 +46,16 @@ namespace KeePassFido2.Kp
   kp context list | show NAME | remove NAME
       Manage the contexts saved on this computer (names and entry references, no values).
 
+  kp tree [GROUP] [--depth N] [--no-entries] [--fields] [--format tree|references]
+      Show the groups and entry titles below GROUP (default: the whole database), after you
+      approve in KeePass. Names only, never values; use it to find where an entry is, or
+      where a new one belongs, before writing a reference or importing. The recycle bin is
+      left out.
+        --depth N          only N levels below GROUP
+        --no-entries       groups only
+        --fields           also which fields each entry has a value in (UserName, URL, ...)
+        --format FORMAT    tree (default), or references: one kp:// reference per line
+
 Options for every command:
   --database PATH   use this database; KeePass asks to unlock it when needed (or set KP_DATABASE)
   --keepass PATH    KeePass.exe to start when KeePass is not running (or set KP_KEEPASS)
@@ -76,6 +86,7 @@ Values that are not references are passed through unchanged.";
                     case "get": return Get(options);
                     case "import": return Import(options);
                     case "context": return ContextCommand(options);
+                    case "tree": return Tree(options);
                     default: throw new KpException($"Unknown command '{args[0]}'. Run 'kp help'.");
                 }
             }
@@ -184,6 +195,25 @@ Values that are not references are passed through unchanged.";
             Console.WriteLine("Google Drive), or git history. Rotate any secret that was ever committed or shared.");
             if (IsTrackedByGit(path))
                 Console.WriteLine($"Warning: {Path.GetFileName(path)} is tracked by git, so its old values are in the repository history.");
+            return 0;
+        }
+
+        private static int Tree(Options options)
+        {
+            if (options.Rest.Count > 1) throw new KpException("Usage: kp tree [GROUP] [--depth N] [--no-entries] [--fields] [--format tree|references]");
+            string group = options.Rest.FirstOrDefault() ?? string.Empty;
+            string format = options.Single("--format") ?? "tree";
+            if (!TreeFormatter.Formats.Contains(format)) throw new KpException($"Unknown format '{format}'. Use tree or references.");
+            int depth = 0;
+            string depthText = options.Single("--depth");
+            if (depthText != null && (!int.TryParse(depthText, out depth) || depth < 1))
+                throw new KpException("--depth must be a whole number of 1 or more.");
+            if (options.Flag("--no-entries") && options.Flag("--fields"))
+                throw new KpException("--fields lists entries' fields, so it cannot be combined with --no-entries.");
+
+            string command = "kp tree" + (group.Length > 0 ? " " + group : string.Empty);
+            IList<KpTreeNode> nodes = KpClient.Tree(group, depth, !options.Flag("--no-entries"), options.Flag("--fields"), command, Target(options));
+            WriteStdout(TreeFormatter.Format(nodes, format));
             return 0;
         }
 
@@ -330,8 +360,8 @@ Values that are not references are passed through unchanged.";
         /// <summary>Options before "--" (or before the first non-option word for run), then the rest.</summary>
         private sealed class Options
         {
-            private static readonly HashSet<string> Flags = new HashSet<string> { "--all", "--dry-run", "--no-rewrite", "--repick" };
-            private static readonly HashSet<string> Valued = new HashSet<string> { "-f", "--file", "--format", "--command", "--group", "--match", "--on-conflict", "--database", "--keepass", "--context", "--slot" };
+            private static readonly HashSet<string> Flags = new HashSet<string> { "--all", "--dry-run", "--no-rewrite", "--repick", "--no-entries", "--fields" };
+            private static readonly HashSet<string> Valued = new HashSet<string> { "-f", "--file", "--format", "--command", "--group", "--match", "--on-conflict", "--database", "--keepass", "--context", "--slot", "--depth" };
             private readonly List<KeyValuePair<string, string>> _values = new List<KeyValuePair<string, string>>();
 
             public Options(IList<string> args)
