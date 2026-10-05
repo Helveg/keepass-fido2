@@ -24,17 +24,17 @@ namespace KeePassFido2.Agent
     /// <remarks>
     /// When the database has Windows Hello or a security key set up, approving requires that
     /// method, so a click injected by another program is not enough. Approvals remembered for a
-    /// folder cover the same program and the same references, and end when a database is closed
-    /// or locked.
+    /// folder cover the same program and either the same references or anything read from the
+    /// same database, as the user chose (<see cref="ApprovalGrants"/>), for 8 hours or until a
+    /// database is closed or locked. Imports are never remembered.
     /// </remarks>
     internal sealed class SecretBroker
     {
-        private static readonly TimeSpan GrantLifetime = TimeSpan.FromHours(8);
 
         private readonly IPluginHost _host;
         private readonly UnlockService _unlock;
         private readonly ContextStore _contexts;
-        private readonly Dictionary<string, DateTime> _grants = new Dictionary<string, DateTime>();
+        private readonly ApprovalGrants _grants = new ApprovalGrants(TimeSpan.FromHours(8));
 
         public SecretBroker(IPluginHost host, UnlockService unlock, ContextStore contexts)
         {
@@ -71,7 +71,7 @@ namespace KeePassFido2.Agent
 
         public void ForgetApprovals()
         {
-            lock (_grants) _grants.Clear();
+            _grants.Clear();
         }
 
         private KpResponse HandleOnUiThread(KpRequest request, ClientProcess client)
@@ -286,10 +286,8 @@ namespace KeePassFido2.Agent
             _contexts.Save(context);
 
             if (picked.Remember)
-            {
-                string grantKey = GrantKey(client, request.WorkingDirectory, context.Variables.Select(v => v.Reference).Distinct(StringComparer.Ordinal));
-                lock (_grants) _grants[grantKey] = DateTime.UtcNow + GrantLifetime;
-            }
+                _grants.Remember(RememberScope.TheseValues, client.ImagePath, request.WorkingDirectory,
+                    context.Variables.Select(v => v.Reference), databases.Select(db => db.IOConnectionInfo.Path));
             return response;
         }
 
@@ -327,8 +325,8 @@ namespace KeePassFido2.Agent
             if (problems.Count > 0)
                 return KpResponse.Failure(string.Join(Environment.NewLine, problems));
 
-            string grantKey = GrantKey(client, workingDirectory, references);
-            if (!HasGrant(grantKey))
+            List<string> databasePaths = resolved.Select(r => r.Database.IOConnectionInfo.Path).Distinct().ToList();
+            if (!_grants.Covers(client.ImagePath, workingDirectory, references, databasePaths))
             {
                 var approval = ApprovalDialog.Ask(new ApprovalRequest
                 {
@@ -345,8 +343,7 @@ namespace KeePassFido2.Agent
                 });
                 if (!Verify(approval, resolved.Select(r => r.Database)))
                     return KpResponse.Failure("Access was denied in KeePass.");
-                if (approval.Remember)
-                    lock (_grants) _grants[grantKey] = DateTime.UtcNow + GrantLifetime;
+                _grants.Remember(approval.Remember, client.ImagePath, workingDirectory, references, databasePaths);
             }
 
             var response = new KpResponse { Ok = true };
@@ -459,11 +456,9 @@ namespace KeePassFido2.Agent
             if (request.IncludeEntries) items.Add("Entry titles");
             if (request.IncludeFields) items.Add("Which fields each entry has (not what is in them)");
 
-            string grantKey = GrantKey(client, request.WorkingDirectory, new[]
-            {
-                $"tree:{string.Join("/", groupPath)}:{request.Depth}:{request.IncludeEntries}:{request.IncludeFields}",
-            });
-            if (!HasGrant(grantKey))
+            var listing = new[] { $"tree:{string.Join("/", groupPath)}:{request.Depth}:{request.IncludeEntries}:{request.IncludeFields}" };
+            List<string> databasePaths = found.Select(x => x.Database.IOConnectionInfo.Path).Distinct().ToList();
+            if (!_grants.Covers(client.ImagePath, request.WorkingDirectory, listing, databasePaths))
             {
                 var approval = ApprovalDialog.Ask(new ApprovalRequest
                 {
@@ -478,8 +473,7 @@ namespace KeePassFido2.Agent
                 });
                 if (!Verify(approval, found.Select(x => x.Database)))
                     return KpResponse.Failure("Access was denied in KeePass.");
-                if (approval.Remember)
-                    lock (_grants) _grants[grantKey] = DateTime.UtcNow + GrantLifetime;
+                _grants.Remember(approval.Remember, client.ImagePath, request.WorkingDirectory, listing, databasePaths);
             }
 
             var response = new KpResponse { Ok = true };
@@ -531,21 +525,6 @@ namespace KeePassFido2.Agent
                 return false;
             }
         }
-
-        private bool HasGrant(string key)
-        {
-            lock (_grants)
-            {
-                if (!_grants.TryGetValue(key, out DateTime expires)) return false;
-                if (expires > DateTime.UtcNow) return true;
-                _grants.Remove(key);
-                return false;
-            }
-        }
-
-        private static string GrantKey(ClientProcess client, string workingDirectory, IEnumerable<string> references) =>
-            string.Join("\n", new[] { client.ImagePath ?? string.Empty, UnlockStore.NormalizePath(workingDirectory ?? string.Empty) }
-                .Concat(references.OrderBy(r => r, StringComparer.Ordinal)));
 
         private static string DatabaseName(PwDatabase database) =>
             string.IsNullOrEmpty(database.Name) ? System.IO.Path.GetFileName(database.IOConnectionInfo.Path) : database.Name;
