@@ -82,6 +82,7 @@ namespace KeePassFido2.Agent
                     return new KpResponse { Ok = true };
                 case KpRequestKind.Resolve:
                 case KpRequestKind.Import:
+                case KpRequestKind.Attach:
                 case KpRequestKind.Tree:
                     KpResponse notReady = EnsureDatabaseOpen(request.DatabasePath, out List<PwDatabase> databases);
                     if (notReady != null) return notReady;
@@ -89,6 +90,7 @@ namespace KeePassFido2.Agent
                     {
                         case KpRequestKind.Resolve: return Resolve(request, client, databases);
                         case KpRequestKind.Import: return Import(request, client, databases);
+                        case KpRequestKind.Attach: return Attach(request, client, databases);
                         default: return Tree(request, client, databases);
                     }
                 default:
@@ -431,6 +433,89 @@ namespace KeePassFido2.Agent
             _host.MainWindow.SaveDatabase(database, null);
             if (database.Modified)
                 return KpResponse.Failure("The values were added in KeePass, but saving the database failed. Save it in KeePass, then run the import again with --on-conflict skip.");
+            return response;
+        }
+
+        /// <summary>
+        /// Stores a file as a binary attachment on an entry (created when missing) in the target
+        /// group, after the user approves. The source file stays where it is.
+        /// </summary>
+        private KpResponse Attach(KpRequest request, ClientProcess client, List<PwDatabase> databases)
+        {
+            KpAttach attach = request.Attach;
+            if (attach == null || attach.Content == null || attach.Content.Length == 0) return KpResponse.Failure("Nothing to attach.");
+            if (string.IsNullOrEmpty(attach.FileName)) return KpResponse.Failure("The attachment has no file name.");
+            if (string.IsNullOrEmpty(attach.EntryTitle)) return KpResponse.Failure("The attachment has no entry title.");
+
+            PwDatabase active = _host.MainWindow.ActiveDatabase;
+            PwDatabase database = databases.Contains(active) ? active : databases.Count == 1 ? databases[0] : null;
+            if (database == null)
+                return KpResponse.Failure("Several databases are unlocked. Select the target database in KeePass, or pass --database PATH.");
+
+            string[] groupPath = SplitGroupPath(attach.GroupPath);
+            PwGroup existingGroup = EntryFinder.FindGroup(database, groupPath);
+            PwEntry existingEntry = existingGroup == null ? null : EntryFinder.FindEntries(existingGroup, attach.EntryTitle).FirstOrDefault();
+            bool fileExists = existingEntry != null && existingEntry.Binaries.Get(attach.FileName) != null;
+
+            if (fileExists && attach.OnConflict == KpConflict.Fail)
+                return KpResponse.Failure(
+                    $"Entry '{attach.EntryTitle}' in '{string.Join("/", groupPath)}' already has an attachment '{attach.FileName}'. " +
+                    "Use --on-conflict skip or --on-conflict overwrite.");
+
+            string groupDisplay = groupPath.Length == 0 ? database.RootGroup.Name : string.Join(" / ", groupPath);
+            string newMarks = (existingGroup == null ? "  (new group)" : string.Empty) + (existingEntry == null ? "  (new entry)" : string.Empty);
+            string itemNote = fileExists
+                ? (attach.OnConflict == KpConflict.Overwrite ? "  (replaces existing attachment)" : "  (already attached, skipped)")
+                : string.Empty;
+            var approval = ApprovalDialog.Ask(new ApprovalRequest
+            {
+                Heading = "A program wants to attach a file to KeePass",
+                Client = client,
+                WorkingDirectory = request.WorkingDirectory,
+                Command = request.Command,
+                DatabaseName = DatabaseName(database) + "  →  " + groupDisplay + " / " + attach.EntryTitle + newMarks,
+                Items = new List<string> { $"{attach.FileName}  ({attach.Content.Length} bytes){itemNote}" },
+                CanRemember = false,
+                Methods = MethodsFor(new[] { database }),
+            });
+            if (!Verify(approval, new[] { database }))
+                return KpResponse.Failure("The attachment was denied in KeePass.");
+
+            PwGroup group = groupPath.Length == 0 ? database.RootGroup : database.RootGroup.FindCreateSubTree(string.Join("/", groupPath), new[] { '/' }, true);
+            PwEntry entry = EntryFinder.FindEntries(group, attach.EntryTitle).FirstOrDefault();
+            string notes = $"Attached {attach.FileName} from {attach.SourceFile} on {DateTime.Now:yyyy-MM-dd HH:mm} by kp.";
+
+            if (entry != null && fileExists && attach.OnConflict == KpConflict.Skip)
+            {
+                // The attachment is already there; leave the database untouched.
+                var unchanged = new KpResponse { Ok = true };
+                unchanged.Values.Add(new KpPair(attach.EntryTitle, SecretReference.ForEntry(groupPath, attach.EntryTitle).ToString()));
+                return unchanged;
+            }
+
+            if (entry == null)
+            {
+                entry = new PwEntry(true, true);
+                entry.Strings.Set(PwDefs.TitleField, new ProtectedString(database.MemoryProtection.ProtectTitle, attach.EntryTitle));
+                entry.Strings.Set(PwDefs.NotesField, new ProtectedString(database.MemoryProtection.ProtectNotes, notes));
+                group.AddEntry(entry, true);
+            }
+            else
+            {
+                entry.CreateBackup(database);
+            }
+
+            entry.Binaries.Set(attach.FileName, new ProtectedBinary(true, attach.Content));
+            entry.Touch(true, false);
+
+            database.Modified = true;
+            _host.MainWindow.UpdateUI(false, null, true, group, true, null, true);
+            _host.MainWindow.SaveDatabase(database, null);
+            if (database.Modified)
+                return KpResponse.Failure("The attachment was added in KeePass, but saving the database failed. Save it in KeePass.");
+
+            var response = new KpResponse { Ok = true };
+            response.Values.Add(new KpPair(attach.EntryTitle, SecretReference.ForEntry(groupPath, attach.EntryTitle).ToString()));
             return response;
         }
 

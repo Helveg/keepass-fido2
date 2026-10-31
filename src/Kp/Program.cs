@@ -43,6 +43,15 @@ namespace KeePassFido2.Kp
         --no-rewrite        leave the .env file unchanged
         --dry-run           show what would happen
 
+  kp attach -f FILE --group GROUP [--entry TITLE] [options]
+      Store FILE as a binary attachment on an entry in GROUP (created if missing) of the
+      database selected in KeePass, after you approve. Use it for key files and other
+      credentials that are not single-line values. The source file is left in place.
+        --entry TITLE       entry to attach to (created if missing); default: the file's name
+        --on-conflict MODE  when the entry already has an attachment of that name: fail
+                            (default), skip or overwrite
+        --dry-run           show what would happen
+
   kp context list | show NAME | remove NAME
       Manage the contexts saved on this computer (names and entry references, no values).
 
@@ -85,6 +94,7 @@ Values that are not references are passed through unchanged.";
                     case "env": return Env(options);
                     case "get": return Get(options);
                     case "import": return Import(options);
+                    case "attach": return Attach(options);
                     case "context": return ContextCommand(options);
                     case "tree": return Tree(options);
                     default: throw new KpException($"Unknown command '{args[0]}'. Run 'kp help'.");
@@ -195,6 +205,41 @@ Values that are not references are passed through unchanged.";
             Console.WriteLine("Google Drive), or git history. Rotate any secret that was ever committed or shared.");
             if (IsTrackedByGit(path))
                 Console.WriteLine($"Warning: {Path.GetFileName(path)} is tracked by git, so its old values are in the repository history.");
+            return 0;
+        }
+
+        private static int Attach(Options options)
+        {
+            string group = options.Single("--group") ?? throw new KpException("--group is required, e.g. --group Clients/Skillz/osTicket");
+            if (options.Files.Count == 0) throw new KpException("kp attach needs a file: -f FILE.");
+            if (options.Files.Count > 1) throw new KpException("kp attach takes one -f FILE.");
+            string path = Path.GetFullPath(options.Files[0]);
+            if (!File.Exists(path)) throw new KpException($"{path} does not exist.");
+            string onConflict = options.Single("--on-conflict") ?? KpConflict.Fail;
+            if (onConflict != KpConflict.Fail && onConflict != KpConflict.Skip && onConflict != KpConflict.Overwrite)
+                throw new KpException("--on-conflict must be fail, skip or overwrite.");
+
+            string fileName = Path.GetFileName(path);
+            string entry = options.Single("--entry") ?? fileName;
+            byte[] content = File.ReadAllBytes(path);
+            if (content.Length == 0) throw new KpException($"{path} is empty.");
+
+            Console.WriteLine($"{(options.Flag("--dry-run") ? "Would attach" : "Attaching")} {fileName} ({content.Length} bytes) to entry '{entry}' in '{group}'.");
+            if (options.Flag("--dry-run")) return 0;
+
+            Console.WriteLine("Approve the attachment in KeePass...");
+            IDictionary<string, string> result = KpClient.Attach(new KpAttach
+            {
+                GroupPath = group,
+                EntryTitle = entry,
+                FileName = fileName,
+                Content = content,
+                OnConflict = onConflict,
+                SourceFile = path,
+            }, "kp attach " + fileName, Target(options));
+
+            foreach (var pair in result)
+                Console.WriteLine($"Attached {fileName} to {pair.Value} (open the entry in KeePass to save or use the file).");
             return 0;
         }
 
@@ -361,7 +406,7 @@ Values that are not references are passed through unchanged.";
         private sealed class Options
         {
             private static readonly HashSet<string> Flags = new HashSet<string> { "--all", "--dry-run", "--no-rewrite", "--repick", "--no-entries", "--fields" };
-            private static readonly HashSet<string> Valued = new HashSet<string> { "-f", "--file", "--format", "--command", "--group", "--match", "--on-conflict", "--database", "--keepass", "--context", "--slot", "--depth" };
+            private static readonly HashSet<string> Valued = new HashSet<string> { "-f", "--file", "--format", "--command", "--group", "--entry", "--match", "--on-conflict", "--database", "--keepass", "--context", "--slot", "--depth" };
             private readonly List<KeyValuePair<string, string>> _values = new List<KeyValuePair<string, string>>();
 
             public Options(IList<string> args)

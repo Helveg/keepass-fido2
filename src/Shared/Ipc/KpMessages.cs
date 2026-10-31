@@ -71,6 +71,9 @@ namespace KeePassFido2.Ipc
         public const string Resolve = "resolve";
         public const string Import = "import";
 
+        /// <summary>Store a file as a binary attachment on an entry, after the user approves.</summary>
+        public const string Attach = "attach";
+
         /// <summary>
         /// Values of a named context: environment variable names mapped to entry fields. When the
         /// context does not exist, lacks a requested slot, or Repick is set, the user assigns
@@ -105,6 +108,7 @@ namespace KeePassFido2.Ipc
 
         [DataMember] public List<string> References { get; set; } = new List<string>();
         [DataMember] public KpImport Import { get; set; }
+        [DataMember] public KpAttach Attach { get; set; }
 
         /// <summary>Context name for Context and ContextRemove requests.</summary>
         [DataMember] public string Context { get; set; }
@@ -144,6 +148,29 @@ namespace KeePassFido2.Ipc
         [DataMember] public string SourceFile { get; set; }
         [DataMember] public string OnConflict { get; set; } = KpConflict.Fail;
         [DataMember] public List<KpPair> Items { get; set; } = new List<KpPair>();
+    }
+
+    /// <summary>A file to store as a binary attachment on an entry, created when missing.</summary>
+    [DataContract]
+    internal sealed class KpAttach
+    {
+        /// <summary>Slash-separated group path below the root group; created when missing.</summary>
+        [DataMember] public string GroupPath { get; set; }
+
+        /// <summary>Title of the entry to attach to; created when missing.</summary>
+        [DataMember] public string EntryTitle { get; set; }
+
+        /// <summary>Attachment name stored in the entry, e.g. the source file's name.</summary>
+        [DataMember] public string FileName { get; set; }
+
+        /// <summary>The file's bytes (serialized as base64 in JSON).</summary>
+        [DataMember] public byte[] Content { get; set; }
+
+        /// <summary>What to do when the entry already has an attachment of this name.</summary>
+        [DataMember] public string OnConflict { get; set; } = KpConflict.Fail;
+
+        /// <summary>Full source path, shown in the approval dialog and recorded in the entry's notes.</summary>
+        [DataMember] public string SourceFile { get; set; }
     }
 
     [DataContract]

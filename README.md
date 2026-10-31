@@ -106,6 +106,18 @@ kp import -f .env.production --group Work/my-project --all --on-conflict skip --
 
 `kp import` creates one entry per variable (title = variable name, value in the password field) in the group, after an approval in KeePass, saves the database and then replaces the values in the file with references. Old values can still live in editor backups, sync history or git history; rotate secrets that were ever committed or shared.
 
+### Attaching files
+
+Credentials that are not single-line values — SSH private keys, certificates, `.pem` files — belong in an entry as a binary attachment rather than a field. `kp attach` stores one, after an approval in KeePass:
+
+```powershell
+kp attach -f id_ed25519.pem --group Clients/Skillz/osTicket          # entry title = file name
+kp attach -f key.pem --group Work/my-project --entry "Deploy key"    # choose the entry title
+kp attach -f key.pem --group Work/my-project --on-conflict overwrite # replace an attachment of the same name
+```
+
+It creates the group and entry when missing, attaches the file, and saves the database. The source file is left where it is (delete it yourself afterwards if you meant to move it). Attachments are not resolved by `kp get`/`kp run`, which read string fields; open the entry in KeePass to save or use the file.
+
 ### WSL
 
 `kp.exe` cannot start Linux programs, so `kp-run` (next to `kp.exe`) asks it for the variables and starts the command itself:

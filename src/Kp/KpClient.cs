@@ -59,6 +59,20 @@ namespace KeePassFido2.Kp
             return response.Values.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         }
 
+        /// <returns>Entry title → reference to the entry the file was attached to.</returns>
+        public static IDictionary<string, string> Attach(KpAttach attach, string command, KeePassTarget target)
+        {
+            KpResponse response = Send(new KpRequest
+            {
+                Kind = KpRequestKind.Attach,
+                WorkingDirectory = Environment.CurrentDirectory,
+                Command = command,
+                DatabasePath = target.DatabasePath,
+                Attach = attach,
+            }, target);
+            return response.Values.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        }
+
         /// <summary>
         /// The variables of a named context; KeePass shows the picker first when the context
         /// does not exist, lacks one of <paramref name="slots"/>, or <paramref name="repick"/> is set.
